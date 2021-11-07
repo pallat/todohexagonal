@@ -1,0 +1,11 @@
+@base_url=http://localhost:8081
+# @name auth
+GET {{base_url}}/tokenz
+
+###
+@token = {{auth.response.body.$.token}}
+
+###
+GET {{base_url}}/todos
+Content-Type: application/json
+Authorization: Bearer {{token}}
