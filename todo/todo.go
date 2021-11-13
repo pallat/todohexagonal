@@ -3,57 +3,68 @@ package todo
 import (
 	"log"
 	"net/http"
-
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
+	"time"
 )
 
 type Todo struct {
-	Title string `json:"text" binding:"required"`
-	gorm.Model
+	Title     string `json:"text" binding:"required"`
+	ID        uint   `gorm:"primarykey"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func (Todo) TableName() string {
 	return "todos"
 }
 
+type storer interface {
+	New(*Todo) error
+}
+
 type TodoHandler struct {
-	db *gorm.DB
+	store storer
 }
 
-func NewTodoHandler(db *gorm.DB) *TodoHandler {
-	return &TodoHandler{db: db}
+func NewTodoHandler(store storer) *TodoHandler {
+	return &TodoHandler{store: store}
 }
 
-func (t *TodoHandler) NewTask(c *gin.Context) {
+type Context interface {
+	Bind(interface{}) error
+	JSON(int, interface{})
+	TransactionID() string
+	Audience() string
+}
+
+func (t *TodoHandler) NewTask(c Context) {
 	var todo Todo
-	if err := c.ShouldBindJSON(&todo); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+	if err := c.Bind(&todo); err != nil {
+		c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"error": err.Error(),
 		})
 		return
 	}
 
 	if todo.Title == "sleep" {
-		transactionID := c.Request.Header.Get("TransactionID")
-		aud, _ := c.Get("aud")
+		transactionID := c.TransactionID()
+		aud := c.Audience()
 		log.Println(transactionID, aud, "not allowed")
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"error": "not allowed",
 		})
 		return
 	}
 
-	r := t.db.Create(&todo)
-	if err := r.Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+	err := t.store.New(&todo)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"error": err.Error(),
 		})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"ID": todo.Model.ID,
+	c.JSON(http.StatusCreated, map[string]interface{}{
+		"ID": todo.ID,
 	})
 }
 

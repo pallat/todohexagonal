@@ -4,5 +4,5 @@ POST {{base_url}}/todos
 Content-Type: application/json
 
 {
-    "text": "test 1"
+    "text": "test 3"
 }

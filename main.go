@@ -2,20 +2,19 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/pallat/todoapi/router"
+	"github.com/pallat/todoapi/store"
 	"github.com/pallat/todoapi/todo"
 )
 
@@ -43,46 +42,22 @@ func main() {
 
 	db.AutoMigrate(&todo.Todo{})
 
-	r := gin.Default()
-	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{
-		"http://localhost:8080",
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://mongoadmin:secret@localhost:27017"))
+	if err != nil {
+		panic("failed to connect database")
 	}
-	config.AllowHeaders = []string{
-		"Origin",
-		"Authorization",
-		"TransactionID",
-	}
-	r.Use(cors.New(config))
+	collection := client.Database("myapp").Collection("todos")
 
-	handler := todo.NewTodoHandler(db)
+	r := router.NewFiberRouter()
+
+	// gormStore := store.NewGormStore(db)
+	mongoStore := store.NewMongoDBStore(collection)
+
+	handler := todo.NewTodoHandler(mongoStore)
 	r.POST("/todos", handler.NewTask)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	s := &http.Server{
-		Addr:           ":" + os.Getenv("PORT"),
-		Handler:        r,
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		MaxHeaderBytes: 1 << 20,
+	if err := r.Listen(":" + os.Getenv("PORT")); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("listen: %s\n", err)
 	}
 
-	go func() {
-		if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
-		}
-	}()
-
-	<-ctx.Done()
-	stop()
-	fmt.Println("shutting down gracefully, press Ctrl+C again to force")
-
-	timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := s.Shutdown(timeoutCtx); err != nil {
-		fmt.Println(err)
-	}
 }
